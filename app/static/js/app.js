@@ -575,7 +575,7 @@ function updateGeminiStatusUI() {
 function handleNoticeInput() {
   const text = elements.noticeInput.value;
   const count = text.length;
-  const max = 20000;
+  const max = 10000;
 
   elements.charCounter.textContent = `${count.toLocaleString()} / ${max.toLocaleString()} characters`;
 
@@ -623,6 +623,14 @@ async function analyzeNotice() {
     elements.inputError.classList.remove('hidden');
     elements.noticeInput.focus();
     showToast('Notice text cannot be empty.', 'warning');
+    return;
+  }
+
+  if (text.length > 10000) {
+    elements.inputError.textContent = 'Notice text exceeds the maximum limit of 10,000 characters.';
+    elements.inputError.classList.remove('hidden');
+    elements.noticeInput.focus();
+    showToast('Notice exceeds 10,000 character limit.', 'error');
     return;
   }
 
@@ -1255,9 +1263,15 @@ async function exportToCalendar() {
   }
 
   const info = state.currentAnalysis.extracted_info;
+
+  if (!info.date) {
+    showToast('Cannot export to calendar: Event date is missing. Please edit and set a date first.', 'warning');
+    return;
+  }
+
   const payload = {
     title: info.title || 'College Event',
-    date: info.date || null,
+    date: info.date,
     time: info.time || null,
     location: info.location || null,
     description: state.currentAnalysis.summary || (info.requirements ? info.requirements.join('\n') : ''),
@@ -1277,21 +1291,30 @@ async function exportToCalendar() {
       downloadBlob(blob, `${slugify(payload.title || 'notice_event')}.ics`);
       showToast('Calendar (.ics) file downloaded!', 'success');
     } else {
-      // Fallback: client-side .ics generation
-      generateClientSideIcs(payload);
+      const err = await response.json().catch(() => ({}));
+      showToast(err.detail || 'Failed to export calendar event: Invalid or missing date.', 'error');
     }
   } catch (err) {
-    console.warn('Backend ICS generation failed, falling back to client-side', err);
+    console.warn('Backend ICS generation failed, attempting client-side export', err);
     generateClientSideIcs(payload);
   }
 }
 
 function generateClientSideIcs(payload) {
+  if (!payload.date) {
+    showToast('Cannot export calendar event: Event date is missing.', 'error');
+    return;
+  }
+
+  const d = parseFlexibleDate(payload.date);
+  if (!d) {
+    showToast('Cannot export calendar event: Invalid date format.', 'error');
+    return;
+  }
+
   const title = payload.title || 'College Event';
   const location = payload.location || '';
   const description = payload.description || '';
-  const dateStr = payload.date ? parseFlexibleDate(payload.date) : new Date();
-  const d = dateStr || new Date();
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');

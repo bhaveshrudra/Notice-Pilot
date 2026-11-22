@@ -103,3 +103,68 @@ class TestExtraction:
         result = extract_from_notice(MINIMAL_NOTICE)
         # Should extract something but not invent
         assert isinstance(result, ExtractedInfo)
+
+    # Test 16: Ambiguous numeric date detection
+    def test_ambiguous_numeric_date(self):
+        ambiguous_notice = "Department Seminar will take place on 05/06/2026 at Seminar Hall."
+        result = extract_from_notice(ambiguous_notice)
+        assert result.date is not None
+        assert "date" in result.uncertain_fields
+
+    # Test 17: Calendar export rejects missing date
+    def test_calendar_export_missing_date_exception(self):
+        from app.calendar_export import generate_ics
+        with pytest.raises(ValueError, match="valid event date is required"):
+            generate_ics(title="No Date Event", date_str=None)
+        with pytest.raises(ValueError, match="valid event date is required"):
+            generate_ics(title="Blank Date Event", date_str="   ")
+
+    # Test 18: Calendar export rejects invalid date
+    def test_calendar_export_invalid_date_exception(self):
+        from app.calendar_export import generate_ics
+        with pytest.raises(ValueError, match="Unable to parse event date"):
+            generate_ics(title="Invalid Date Event", date_str="not-a-valid-date-str")
+
+    # Test 19: Calendar ICS escaping for RFC 5545 special characters
+    def test_calendar_ics_escaping(self):
+        from app.calendar_export import generate_ics
+        ics = generate_ics(
+            title="AI, ML; Seminar \\ Workshop",
+            date_str="2026-12-15",
+            location="Room 101, Block A; Wing B",
+            description="First line\nSecond line; with comma, and backslash\\"
+        )
+        assert r"AI\, ML\; Seminar \\ Workshop" in ics
+        assert r"Room 101\, Block A\; Wing B" in ics
+        assert r"\n" in ics
+
+    # Test 20: Calendar ICS line folding (> 75 octets)
+    def test_calendar_ics_line_folding(self):
+        from app.calendar_export import generate_ics
+        long_title = "A" * 90
+        ics = generate_ics(title=long_title, date_str="2026-12-15")
+        # Ensure CRLF followed by space line folding occurred
+        assert "\r\n " in ics
+        for line in ics.split("\r\n"):
+            assert len(line.encode("utf-8")) <= 75
+
+    # Test 21: Dynamic priority calculation relative to today
+    def test_dynamic_priority_calculation(self):
+        import datetime
+        from app.extraction import _calculate_priority
+        today = datetime.date.today()
+        soon = (today + datetime.timedelta(days=2)).isoformat()
+        medium = (today + datetime.timedelta(days=5)).isoformat()
+        far = (today + datetime.timedelta(days=25)).isoformat()
+        
+        assert _calculate_priority(soon) == "high"
+        assert _calculate_priority(medium) == "medium"
+        assert _calculate_priority(far) == "low"
+
+    # Test 22: Never invent missing fields
+    def test_never_invent_missing_fields(self):
+        sparse_notice = "Meeting at 4:00 PM."
+        result = extract_from_notice(sparse_notice)
+        assert result.date is None
+        assert result.location is None
+        assert result.registration_deadline is None

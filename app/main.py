@@ -1,6 +1,6 @@
 import os
 import re
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, JSONResponse
@@ -22,13 +22,27 @@ app = FastAPI(
     description="Smart workflow automation platform converting college notices into actionable tasks and calendar events"
 )
 
-# Enable CORS for local development and cross-origin requests
+# Configure secure CORS settings
+cors_origins_env = os.environ.get("ALLOWED_ORIGINS", "")
+if cors_origins_env:
+    allowed_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
 # Ensure static folder exists
@@ -92,15 +106,24 @@ async def analyze_notice(payload: NoticeInput):
             summary=summary,
             extraction_method=extraction_method
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error analyzing notice: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="An error occurred while analyzing the notice. Please verify input text.")
 
 
 @app.post("/api/export/ics")
 async def export_ics(payload: CalendarExportRequest):
     """
     Export event as an RFC 5545 compliant iCalendar (.ics) file.
+    Rejects requests with missing or invalid dates (HTTP 400).
     """
+    if not payload.date or not payload.date.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A valid event date is required for calendar export. Dates must not be guessed or missing."
+        )
+
     try:
         ics_text = generate_ics(
             title=payload.title,
@@ -118,8 +141,12 @@ async def export_ics(payload: CalendarExportRequest):
                 "Content-Disposition": f'attachment; filename="{safe_filename}.ics"'
             }
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate ICS file: {str(e)}")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to generate calendar file.")
 
 
 @app.post("/api/share/whatsapp")
@@ -164,8 +191,10 @@ async def share_whatsapp(payload: ShareRequest):
 
         lines.append("\n_Created with NoticePilot_")
         return {"summary": "\n".join(lines)}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to generate WhatsApp summary: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to generate WhatsApp summary.")
 
 
 @app.get("/")

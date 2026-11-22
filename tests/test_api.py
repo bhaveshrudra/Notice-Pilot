@@ -72,3 +72,38 @@ class TestAPI:
         })
         assert response.status_code == 200
         assert "VCALENDAR" in response.text
+
+    # Test ICS export rejection on missing date
+    def test_ics_export_missing_date(self, client):
+        response = client.post("/api/export/ics", json={
+            "title": "Date Missing Event",
+            "date": None,
+            "description": "No date provided"
+        })
+        assert response.status_code == 400
+        assert "valid event date is required" in response.json()["detail"].lower()
+
+    # Test ICS export rejection on empty string date
+    def test_ics_export_empty_date(self, client):
+        response = client.post("/api/export/ics", json={
+            "title": "Empty Date Event",
+            "date": "   ",
+            "description": "Empty date string"
+        })
+        assert response.status_code == 400
+        assert "valid event date is required" in response.json()["detail"].lower()
+
+    # Test ICS export rejection on invalid date
+    def test_ics_export_invalid_date(self, client):
+        response = client.post("/api/export/ics", json={
+            "title": "Invalid Date Event",
+            "date": "invalid-non-date-xyz",
+            "description": "Corrupted date"
+        })
+        assert response.status_code == 400
+        assert "unable to parse" in response.json()["detail"].lower() or "invalid date" in response.json()["detail"].lower()
+
+    # Test analyze with whitespace only
+    def test_analyze_whitespace_only(self, client):
+        response = client.post("/api/analyze", json={"text": "   \n\t  ", "use_ai": False})
+        assert response.status_code == 422

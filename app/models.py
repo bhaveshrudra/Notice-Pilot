@@ -12,6 +12,8 @@ class NoticeInput(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError('Notice text cannot be empty')
+        if len(v) > 10000:
+            raise ValueError('Notice text exceeds maximum limit of 10,000 characters')
         return v
 
 class EvidenceSnippet(BaseModel):
@@ -25,11 +27,11 @@ class ExtractedInfo(BaseModel):
     time: Optional[str] = None
     location: Optional[str] = None
     registration_deadline: Optional[str] = None
-    requirements: List[str] = []
-    contact_info: List[str] = []
-    action_items: List[str] = []
-    evidence: List[EvidenceSnippet] = []
-    uncertain_fields: List[str] = []
+    requirements: List[str] = Field(default_factory=list)
+    contact_info: List[str] = Field(default_factory=list)
+    action_items: List[str] = Field(default_factory=list)
+    evidence: List[EvidenceSnippet] = Field(default_factory=list)
+    uncertain_fields: List[str] = Field(default_factory=list)
 
 class TaskItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -41,7 +43,7 @@ class TaskItem(BaseModel):
 
 class AnalysisResponse(BaseModel):
     extracted_info: ExtractedInfo
-    tasks: List[TaskItem]
+    tasks: List[TaskItem] = Field(default_factory=list)
     summary: str
     extraction_method: str
 
@@ -54,5 +56,5 @@ class CalendarExportRequest(BaseModel):
     all_day: bool = False
 
 class ShareRequest(BaseModel):
-    extracted_info: dict
-    tasks: list
+    extracted_info: dict = Field(default_factory=dict)
+    tasks: list = Field(default_factory=list)

@@ -55,15 +55,17 @@ def generate_ics(
     - Timezone: Asia/Kolkata
     - All-day and timed event support
     - Line folding and RFC 5545 compliance
+    - Rejects missing or invalid dates (never invents dates)
     """
-    # 1. Determine base date
-    base_date = datetime.date(2026, 11, 22)
-    if date_str:
-        try:
-            parsed = parser.parse(date_str, fuzzy=True, dayfirst=True)
-            base_date = parsed.date()
-        except Exception:
-            pass
+    if not date_str or not date_str.strip():
+        raise ValueError("A valid event date is required for calendar export. Never invent missing dates.")
+
+    # 1. Parse date strictly without fallback invention
+    try:
+        parsed = parser.parse(date_str.strip(), fuzzy=True, dayfirst=True)
+        base_date = parsed.date()
+    except Exception as e:
+        raise ValueError(f"Unable to parse event date '{date_str}': invalid date format.") from e
 
     # 2. Determine if timed or all-day
     is_timed = False

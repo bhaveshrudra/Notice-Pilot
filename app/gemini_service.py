@@ -2,7 +2,6 @@ import os
 import json
 import re
 from typing import Optional
-import google.generativeai as genai
 
 
 def is_gemini_available() -> bool:
@@ -13,7 +12,7 @@ def is_gemini_available() -> bool:
 async def extract_with_gemini(text: str) -> Optional[dict]:
     """
     Extract structured notice data using Google Gemini API.
-    Only executes if GEMINI_API_KEY is set.
+    Only executes if GEMINI_API_KEY is configured.
     Returns parsed dictionary conforming to ExtractedInfo or None on error/fallback.
     """
     api_key = os.environ.get('GEMINI_API_KEY')
@@ -40,7 +39,7 @@ Return ONLY a valid JSON object matching this schema:
 
 CRITICAL RULES:
 1. NEVER invent dates, locations, or requirements. Only extract what is present in the text.
-2. Format all dates as YYYY-MM-DD. Assume reference year 2026 if not specified.
+2. Format all dates as YYYY-MM-DD.
 3. If numeric dates (like 01/02/2026) are ambiguous between DD/MM and MM/DD, include "date" in uncertain_fields.
 4. Return ONLY valid JSON, without any conversational preamble or postscript.
 
@@ -50,17 +49,16 @@ Notice text:
 \"\"\"
 """
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
-        # Async generation
-        response = await model.generate_content_async(prompt)
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        response = await client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
         if not response or not response.text:
             return None
 
         raw_text = response.text.strip()
-
-        # Strip markdown json block fences if present
         if "```" in raw_text:
             fence_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', raw_text)
             if fence_match:

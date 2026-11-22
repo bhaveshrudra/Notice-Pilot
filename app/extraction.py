@@ -71,13 +71,15 @@ def _check_numeric_date_ambiguity(date_str: str) -> bool:
     return False
 
 
-def _parse_to_iso_date(date_str: str, default_year: int = 2026) -> Optional[str]:
+def _parse_to_iso_date(date_str: str, default_year: Optional[int] = None) -> Optional[str]:
     """
     Parses a raw date string to YYYY-MM-DD using dateutil.
+    Dynamically defaults to current year if year is omitted.
     """
     try:
         # Default dayfirst=True for Indian / UK college notices
-        default_dt = datetime.datetime(default_year, 1, 1)
+        year = default_year if default_year is not None else datetime.date.today().year
+        default_dt = datetime.datetime(year, 1, 1)
         parsed = parser.parse(date_str, dayfirst=True, default=default_dt, fuzzy=True)
         return parsed.strftime("%Y-%m-%d")
     except Exception:
@@ -543,8 +545,8 @@ def extract_from_notice(text: str) -> ExtractedInfo:
 
 def _calculate_priority(deadline_str: Optional[str], default_priority: str = "medium") -> str:
     """
-    Calculate priority relative to today: 2026-11-22
-    - within 3 days = high
+    Calculate priority dynamically relative to today:
+    - overdue or within 3 days = high
     - within 7 days = medium
     - else low
     """
@@ -552,7 +554,7 @@ def _calculate_priority(deadline_str: Optional[str], default_priority: str = "me
         return default_priority
     try:
         parsed_dt = parser.parse(deadline_str, fuzzy=True, dayfirst=True)
-        today = datetime.date(2026, 11, 22)
+        today = datetime.date.today()
         diff_days = (parsed_dt.date() - today).days
         if diff_days <= 3:
             return "high"
