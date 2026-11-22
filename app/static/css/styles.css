@@ -48,10 +48,10 @@
   --whatsapp-hover: #20ba59;
   --whatsapp-light: rgba(37, 211, 102, 0.12);
   
-  /* Text Colors */
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  /* Text Colors — WCAG 2.2 AA / AAA Compliant Contrast */
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
   --text-inverse: #0a0e27;
   
   /* Borders & Glassmorphism */

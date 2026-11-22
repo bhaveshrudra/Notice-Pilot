@@ -54,6 +54,7 @@ class TestAPI:
         data = response.json()
         assert "summary" in data
         assert len(data["summary"]) > 0
+        assert "• Register (by 2026-12-10)" in data["summary"]
     
     # Test Gemini status
     def test_gemini_status(self, client):
@@ -107,3 +108,41 @@ class TestAPI:
     def test_analyze_whitespace_only(self, client):
         response = client.post("/api/analyze", json={"text": "   \n\t  ", "use_ai": False})
         assert response.status_code == 422
+
+    # Test health response adheres to HealthResponse model
+    def test_health_response_schema(self, client):
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert set(data.keys()) == {"status", "service", "gemini_available"}
+        assert isinstance(data["gemini_available"], bool)
+
+    # Test gemini-status response adheres to GeminiStatusResponse model
+    def test_gemini_status_schema(self, client):
+        response = client.get("/api/gemini-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert set(data.keys()) == {"available"}
+        assert isinstance(data["available"], bool)
+
+    # Test share whatsapp response adheres to ShareResponse model
+    def test_share_response_schema(self, client):
+        response = client.post("/api/share/whatsapp", json={
+            "extracted_info": {"title": "Annual Fest 2026", "date": "2026-12-20"},
+            "tasks": ["Attend event"]
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert set(data.keys()) == {"summary"}
+        assert "Annual Fest 2026" in data["summary"]
+
+    # Test CORS headers for production onrender domain
+    def test_cors_headers_render_origin(self, client):
+        headers = {
+            "Origin": "https://noticepilot.onrender.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        }
+        response = client.options("/api/analyze", headers=headers)
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == "https://noticepilot.onrender.com"

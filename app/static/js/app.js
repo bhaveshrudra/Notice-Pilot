@@ -123,7 +123,8 @@ const state = {
   tasks: [],
   taskFilter: 'all', // 'all' | 'pending' | 'completed'
   taskSort: 'priority', // 'priority' | 'deadline' | 'name'
-  isAnalyzing: false
+  isAnalyzing: false,
+  lastFocusedElement: null
 };
 
 // ============================================================================
@@ -1042,6 +1043,32 @@ function toggleTaskCompletion(taskId, completed) {
   showToast(`Task "${task.name}" marked as ${completed ? 'completed' : 'pending'}.`, 'info', 2000);
 }
 
+/**
+ * Generic accessible modal opener that captures activeElement for focus restoration.
+ */
+function openModal(modalEl, focusTarget) {
+  if (!modalEl) return;
+  state.lastFocusedElement = document.activeElement;
+  modalEl.classList.remove('hidden');
+  if (focusTarget && typeof focusTarget.focus === 'function') {
+    setTimeout(() => focusTarget.focus(), 50);
+  }
+}
+
+/**
+ * Generic accessible modal closer that restores focus to previous activeElement.
+ */
+function closeModal(modalEl) {
+  if (!modalEl) return;
+  modalEl.classList.add('hidden');
+  if (state.lastFocusedElement && typeof state.lastFocusedElement.focus === 'function') {
+    try {
+      state.lastFocusedElement.focus();
+    } catch (_) {}
+    state.lastFocusedElement = null;
+  }
+}
+
 function openTaskModal(task = null) {
   if (task) {
     elements.taskModalTitle.textContent = 'Edit Task';
@@ -1059,12 +1086,11 @@ function openTaskModal(task = null) {
     elements.taskFormDesc.value = '';
   }
 
-  elements.taskModal.classList.remove('hidden');
-  elements.taskFormName.focus();
+  openModal(elements.taskModal, elements.taskFormName);
 }
 
 function closeTaskModal() {
-  elements.taskModal.classList.add('hidden');
+  closeModal(elements.taskModal);
 }
 
 function saveTaskFromModal(e) {
@@ -1316,10 +1342,20 @@ function generateClientSideIcs(payload) {
   const location = payload.location || '';
   const description = payload.description || '';
 
+  const escapeIcs = (str) => (str || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   const dateFormatted = `${year}${month}${day}`;
+
+  // RFC 5545 non-inclusive end date for all-day events (start date + 1 day)
+  const nextDay = new Date(d);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const nextYear = nextDay.getFullYear();
+  const nextMonth = String(nextDay.getMonth() + 1).padStart(2, '0');
+  const nextDayStr = String(nextDay.getDate()).padStart(2, '0');
+  const nextDateFormatted = `${nextYear}${nextMonth}${nextDayStr}`;
 
   const icsContent = [
     'BEGIN:VCALENDAR',
@@ -1327,11 +1363,11 @@ function generateClientSideIcs(payload) {
     'PRODID:-//NoticePilot//College Notice Events//EN',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
-    `SUMMARY:${title}`,
-    `LOCATION:${location}`,
-    `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
+    `SUMMARY:${escapeIcs(title)}`,
+    `LOCATION:${escapeIcs(location)}`,
+    `DESCRIPTION:${escapeIcs(description)}`,
     `DTSTART;VALUE=DATE:${dateFormatted}`,
-    `DTEND;VALUE=DATE:${dateFormatted}`,
+    `DTEND;VALUE=DATE:${nextDateFormatted}`,
     `UID:${generateId()}@noticepilot.app`,
     'STATUS:CONFIRMED',
     'END:VEVENT',
@@ -1435,11 +1471,11 @@ function openWhatsAppModal(summaryText) {
   const encoded = encodeURIComponent(summaryText);
   elements.openWhatsappLink.href = `https://api.whatsapp.com/send?text=${encoded}`;
 
-  elements.whatsappModal.classList.remove('hidden');
+  openModal(elements.whatsappModal, elements.copyWhatsappBtn);
 }
 
 function closeWhatsAppModal() {
-  elements.whatsappModal.classList.add('hidden');
+  closeModal(elements.whatsappModal);
 }
 
 async function copyWhatsAppText() {
@@ -1497,8 +1533,7 @@ function openEditFieldModal(fieldKey) {
   elements.itemFormIndex.value = '';
   elements.itemFormInput.value = currentVal;
 
-  elements.itemModal.classList.remove('hidden');
-  elements.itemFormInput.focus();
+  openModal(elements.itemModal, elements.itemFormInput);
 }
 
 function openAddDetailModal(targetKey) {
@@ -1514,8 +1549,7 @@ function openAddDetailModal(targetKey) {
   elements.itemFormIndex.value = '-1';
   elements.itemFormInput.value = '';
 
-  elements.itemModal.classList.remove('hidden');
-  elements.itemFormInput.focus();
+  openModal(elements.itemModal, elements.itemFormInput);
 }
 
 function openEditDetailModal(targetKey, index) {
@@ -1530,12 +1564,11 @@ function openEditDetailModal(targetKey, index) {
   elements.itemFormIndex.value = String(index);
   elements.itemFormInput.value = currentVal;
 
-  elements.itemModal.classList.remove('hidden');
-  elements.itemFormInput.focus();
+  openModal(elements.itemModal, elements.itemFormInput);
 }
 
 function closeItemModal() {
-  elements.itemModal.classList.add('hidden');
+  closeModal(elements.itemModal);
 }
 
 function handleSaveItemModal(e) {
@@ -1598,11 +1631,11 @@ function openConfirmModal(title, message, onProceed) {
   elements.confirmModalTitle.textContent = title;
   elements.confirmModalMessage.textContent = message;
   confirmCallback = onProceed;
-  elements.confirmModal.classList.remove('hidden');
+  openModal(elements.confirmModal, elements.proceedConfirmModal);
 }
 
 function closeConfirmModal() {
-  elements.confirmModal.classList.add('hidden');
+  closeModal(elements.confirmModal);
   confirmCallback = null;
 }
 
@@ -1723,22 +1756,47 @@ function setupEventListeners() {
   });
 
   // Close modals when clicking backdrop
-  [elements.whatsappModal, elements.taskModal, elements.itemModal, elements.confirmModal].forEach(modal => {
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.classList.add('hidden');
-      }
-    });
+  elements.whatsappModal.addEventListener('click', (e) => {
+    if (e.target === elements.whatsappModal) closeWhatsAppModal();
+  });
+  elements.taskModal.addEventListener('click', (e) => {
+    if (e.target === elements.taskModal) closeTaskModal();
+  });
+  elements.itemModal.addEventListener('click', (e) => {
+    if (e.target === elements.itemModal) closeItemModal();
+  });
+  elements.confirmModal.addEventListener('click', (e) => {
+    if (e.target === elements.confirmModal) closeConfirmModal();
   });
 
-  // Keyboard accessibility: ESC key closes open modals
+  // Keyboard accessibility: ESC key closes open modals & TAB traps focus within active modal
   document.addEventListener('keydown', (e) => {
+    const activeModal = [elements.whatsappModal, elements.taskModal, elements.itemModal, elements.confirmModal]
+      .find(m => m && !m.classList.contains('hidden'));
+
+    if (!activeModal) return;
+
     if (e.key === 'Escape') {
-      [elements.whatsappModal, elements.taskModal, elements.itemModal, elements.confirmModal].forEach(m => {
-        if (!m.classList.contains('hidden')) {
-          m.classList.add('hidden');
-        }
-      });
+      if (activeModal === elements.whatsappModal) closeWhatsAppModal();
+      else if (activeModal === elements.taskModal) closeTaskModal();
+      else if (activeModal === elements.itemModal) closeItemModal();
+      else if (activeModal === elements.confirmModal) closeConfirmModal();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      const focusables = activeModal.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        last.focus();
+        e.preventDefault();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        first.focus();
+        e.preventDefault();
+      }
     }
   });
 }

@@ -82,7 +82,7 @@ def _parse_to_iso_date(date_str: str, default_year: Optional[int] = None) -> Opt
         default_dt = datetime.datetime(year, 1, 1)
         parsed = parser.parse(date_str, dayfirst=True, default=default_dt, fuzzy=True)
         return parsed.strftime("%Y-%m-%d")
-    except Exception:
+    except (parser.ParserError, ValueError, OverflowError, TypeError):
         return None
 
 
@@ -212,7 +212,7 @@ def extract_dates(text: str) -> Tuple[Optional[str], Optional[EvidenceSnippet], 
                             uncertain_fields.append("date")
                         break
 
-    # Third pass: Any remaining date in the text
+    # Fourth pass: Any remaining date in the text
     if not event_date:
         for line in lines:
             if reg_deadline_evidence and line == reg_deadline_evidence.snippet:
@@ -296,8 +296,8 @@ def extract_location(text: str) -> Tuple[Optional[str], Optional[EvidenceSnippet
     """
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-    # 1. Explicit Venue / Location / Place label
-    explicit_pat = re.compile(r'^(?:venue|location|place)\s*[:\-]\s*(.+)$', re.IGNORECASE)
+    # 1. Explicit Venue / Location / Place / Platform / Mode label
+    explicit_pat = re.compile(r'^(?:venue|location|place|platform|mode)\s*[:\-]\s*(.+)$', re.IGNORECASE)
     for line in lines:
         m = explicit_pat.search(line)
         if m:
@@ -306,7 +306,7 @@ def extract_location(text: str) -> Tuple[Optional[str], Optional[EvidenceSnippet
                 return loc, EvidenceSnippet(field="location", snippet=line, confidence=0.95)
 
     # 2. In-line Venue: pattern
-    inline_pat = re.compile(r'(?:venue|location|place)\s*[:\-]\s*([^\n\r,;]+)', re.IGNORECASE)
+    inline_pat = re.compile(r'(?:venue|location|place|platform|mode)\s*[:\-]\s*([^\n\r,;]+)', re.IGNORECASE)
     for line in lines:
         m = inline_pat.search(line)
         if m:
@@ -314,14 +314,11 @@ def extract_location(text: str) -> Tuple[Optional[str], Optional[EvidenceSnippet
             if loc and len(loc) >= 3:
                 return loc, EvidenceSnippet(field="location", snippet=line, confidence=0.90)
 
-    # 3. Contextual patterns: at [Venue] or in [Room/Hall/Audi]
+    # 3. Contextual patterns: at [Venue] or in [Room/Hall/Audi] or online platform
     room_pat = re.compile(
-        r'\b(?:at|in)\s+(?:the\s+)?([A-Z][A-Za-z0-9\s]{2,40}?(?:Auditorium|Audi|Seminar\s+Hall|Conference\s+Hall|Hall(?:\s+[-–]?[A-Z0-9]+)?|Room(?:\s+[-–]?[A-Z0-9]+)?|Lab(?:\s+[-–]?[A-Z0-9]+)?|Grounds?|Campus|Building|Centre|Center|Library))\b'
+        r'\b(?:at|in|via|on)\s+(?:the\s+)?((?:[A-Z][A-Za-z0-9\s]{0,35}\s+)?(?:Auditorium|Audi|Seminar\s+Hall|Conference\s+Hall|Hall(?:\s+[-–]?[A-Z0-9]+)?|Room(?:\s+[-–]?[A-Z0-9]+)?|Lab(?:\s+[-–]?[A-Z0-9]+)?|Grounds?|Campus|Building|Centre|Center|Library|Google\s+Meet|Zoom|MS\s+Teams|Microsoft\s+Teams|Webex))\b'
     )
     for line in lines:
-        # Exclude lines that are about times or dates
-        if re.search(r'\b(?:at|in)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b', line, re.IGNORECASE):
-            continue
         m = room_pat.search(line)
         if m:
             loc = m.group(1).strip().strip('.')
@@ -432,7 +429,8 @@ def extract_action_items(text: str) -> Tuple[List[str], List[EvidenceSnippet]]:
     action_verbs = [
         'register', 'submit', 'attend', 'download', 'pay', 'upload',
         'fill', 'join', 'apply', 'collect', 'carry', 'bring',
-        'report', 'send', 'verify', 'complete', 'confirm'
+        'report', 'send', 'verify', 'complete', 'confirm',
+        'clear', 'check', 'enroll', 'contact', 'meet'
     ]
     verb_regex = r'\b(?:' + '|'.join(action_verbs) + r')\b'
 
@@ -460,9 +458,9 @@ def extract_action_items(text: str) -> Tuple[List[str], List[EvidenceSnippet]]:
         if not is_action and len(words) > 1 and words[1].lower().strip('.,:;()[]') in action_verbs:
             is_action = True
 
-        # Also check imperative phrases like "Please submit...", "Students must register..."
+        # Also check imperative phrases like "Please submit...", "Students must register...", "Last date to pay..."
         if not is_action:
-            if re.search(r'\b(?:please|kindly|must|should|advised\s+to|requested\s+to)\s+(?:' + '|'.join(action_verbs) + r')\b', candidate, re.IGNORECASE):
+            if re.search(r'\b(?:please|kindly|must|should|advised\s+to|requested\s+to|required\s+to|last\s+date\s+to|deadline\s+to)\s+(?:' + '|'.join(action_verbs) + r')\b', candidate, re.IGNORECASE):
                 is_action = True
 
         if is_action and len(candidate) > 8:
@@ -562,7 +560,7 @@ def _calculate_priority(deadline_str: Optional[str], default_priority: str = "me
             return "medium"
         else:
             return "low"
-    except Exception:
+    except (parser.ParserError, ValueError, OverflowError, TypeError):
         return default_priority
 
 
@@ -571,7 +569,7 @@ def generate_tasks(extracted_info: ExtractedInfo) -> List[TaskItem]:
     Generate actionable tasks from extracted notice info.
     - If registration deadline, high-priority 'Register for [event]'
     - If event date, medium-priority 'Attend [event]'
-    - Action item tasks with priority based on deadline relative to 2026-11-22
+    - Action item tasks with priority based on dynamic deadline proximity
     """
     tasks: List[TaskItem] = []
     event_title = extracted_info.title or "Event"
@@ -579,8 +577,7 @@ def generate_tasks(extracted_info: ExtractedInfo) -> List[TaskItem]:
     # 1. Registration deadline task
     if extracted_info.registration_deadline:
         reg_prio = _calculate_priority(extracted_info.registration_deadline, default_priority="high")
-        # Ensure registration deadline tasks are high priority as per specification
-        priority = "high" if reg_prio == "high" else reg_prio
+        priority = reg_prio
         tasks.append(
             TaskItem(
                 id=str(uuid.uuid4()),

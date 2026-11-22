@@ -168,3 +168,60 @@ class TestExtraction:
         assert result.date is None
         assert result.location is None
         assert result.registration_deadline is None
+
+    # Test 23: Virtual location & platform extraction (Zoom, Google Meet, Teams)
+    def test_extract_virtual_location_and_platform(self):
+        notice = """
+        Webinar on Cloud Computing
+        Platform: Google Meet
+        Date: 10th December 2026
+        Time: 5:00 PM
+        """
+        result = extract_from_notice(notice)
+        assert result.location is not None
+        assert "Google Meet" in result.location
+
+        notice2 = "Interactive Q&A Session conducted via Zoom on 12th December 2026 at 4:00 PM."
+        result2 = extract_from_notice(notice2)
+        assert result2.location is not None
+        assert "Zoom" in result2.location
+
+    # Test 24: Fee and deadline imperative action items
+    def test_fee_deadline_imperative_action_item(self):
+        notice = """
+        CIRCULAR: Semester Fee Payment
+        Date: 20th November 2026
+        Last date to pay tuition fee: 30th November 2026
+        Students must clear all library dues before payment.
+        """
+        result = extract_from_notice(notice)
+        assert any("pay tuition fee" in a.lower() for a in result.action_items)
+        assert any("clear all library dues" in a.lower() for a in result.action_items)
+
+    # Test 25: Comprehensive campus placement / internship notice
+    def test_internship_placement_notice(self):
+        notice = """
+        CAMPUS PLACEMENT DRIVE: Google Software Engineering Internship 2027
+        Eligibility: 6th Semester B.Tech CSE / IT with CGPA >= 8.0
+        Package: INR 1.2 Lakh / month stipend
+        Online Coding Test Date: 18th December 2026
+        Registration deadline: 12th December 2026
+        Venue: Online via HackerRank
+        Contact: placement@college.edu
+        Please submit your updated resume via the portal.
+        """
+        result = extract_from_notice(notice)
+        assert result.title is not None and "Placement" in result.title or "Google" in result.title
+        assert result.date == "2026-12-18"
+        assert result.registration_deadline == "2026-12-12"
+        assert "HackerRank" in result.location or "Online" in result.location
+        assert "placement@college.edu" in result.contact_info
+        assert any("resume" in a.lower() for a in result.action_items)
+
+    # Test 26: TaskItem priority normalization and fallback
+    def test_task_item_priority_normalization(self):
+        from app.models import TaskItem
+        t1 = TaskItem(name="Task 1", priority="HIGH")
+        assert t1.priority == "high"
+        t2 = TaskItem(name="Task 2", priority="UNKNOWN_URGENCY")
+        assert t2.priority == "medium"

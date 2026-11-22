@@ -1,7 +1,10 @@
 import os
 import json
 import re
-from typing import Optional
+import logging
+from typing import Any, Dict, Optional
+
+logger = logging.getLogger("noticepilot.gemini")
 
 
 def is_gemini_available() -> bool:
@@ -9,7 +12,7 @@ def is_gemini_available() -> bool:
     return bool(os.environ.get('GEMINI_API_KEY'))
 
 
-async def extract_with_gemini(text: str) -> Optional[dict]:
+async def extract_with_gemini(text: str) -> Optional[Dict[str, Any]]:
     """
     Extract structured notice data using Google Gemini API.
     Only executes if GEMINI_API_KEY is configured.
@@ -80,6 +83,7 @@ Notice text:
             return data
 
         return None
-    except Exception:
-        # Graceful fallback to local extraction
+    except Exception as exc:
+        # Graceful fallback to local extraction with server-side diagnostic logging
+        logger.warning("Gemini extraction encountered an exception; falling back to local engine: %s", exc)
         return None

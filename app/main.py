@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from fastapi import FastAPI, HTTPException
@@ -10,11 +11,17 @@ from app.models import (
     AnalysisResponse,
     ExtractedInfo,
     CalendarExportRequest,
-    ShareRequest
+    ShareRequest,
+    ShareResponse,
+    HealthResponse,
+    GeminiStatusResponse,
+    TaskItem
 )
 from app.extraction import extract_from_notice, generate_tasks, generate_summary
 from app.calendar_export import generate_ics
 from app.gemini_service import is_gemini_available, extract_with_gemini
+
+logger = logging.getLogger("noticepilot")
 
 app = FastAPI(
     title="NoticePilot",
@@ -28,6 +35,7 @@ if cors_origins_env:
     allowed_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
 else:
     allowed_origins = [
+        "https://noticepilot.onrender.com",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "http://localhost:3000",
@@ -39,7 +47,7 @@ else:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=r"^https?://([a-zA-Z0-9\-]+\.onrender\.com|localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],
@@ -57,24 +65,24 @@ if os.path.exists(js_dir):
     app.mount("/js", StaticFiles(directory=js_dir), name="js")
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": "NoticePilot",
-        "gemini_available": is_gemini_available()
-    }
+@app.get("/health", response_model=HealthResponse)
+async def health_check() -> HealthResponse:
+    """Health check endpoint for container orchestrators and uptime monitoring."""
+    return HealthResponse(
+        status="healthy",
+        service="NoticePilot",
+        gemini_available=is_gemini_available()
+    )
 
 
-@app.get("/api/gemini-status")
-async def gemini_status():
+@app.get("/api/gemini-status", response_model=GeminiStatusResponse)
+async def gemini_status() -> GeminiStatusResponse:
     """Returns whether Gemini API key is configured."""
-    return {"available": is_gemini_available()}
+    return GeminiStatusResponse(available=is_gemini_available())
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse)
-async def analyze_notice(payload: NoticeInput):
+async def analyze_notice(payload: NoticeInput) -> AnalysisResponse:
     """
     Analyze notice text using deterministic local regex engine or optional Gemini AI.
     Returns extracted structured info, generated tasks, and summary.
@@ -89,7 +97,8 @@ async def analyze_notice(payload: NoticeInput):
                 if gemini_data:
                     extracted_info = ExtractedInfo(**gemini_data)
                     extraction_method = "gemini"
-            except Exception:
+            except Exception as exc:
+                logger.warning("Gemini extraction failed; falling back to local engine: %s", exc)
                 extracted_info = None
 
         # Fallback or primary local deterministic extraction
@@ -108,12 +117,13 @@ async def analyze_notice(payload: NoticeInput):
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.error("Analysis endpoint unexpected failure: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while analyzing the notice. Please verify input text.")
 
 
 @app.post("/api/export/ics")
-async def export_ics(payload: CalendarExportRequest):
+async def export_ics(payload: CalendarExportRequest) -> Response:
     """
     Export event as an RFC 5545 compliant iCalendar (.ics) file.
     Rejects requests with missing or invalid dates (HTTP 400).
@@ -145,12 +155,13 @@ async def export_ics(payload: CalendarExportRequest):
         raise HTTPException(status_code=400, detail=str(ve))
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.error("ICS export unexpected failure: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to generate calendar file.")
 
 
-@app.post("/api/share/whatsapp")
-async def share_whatsapp(payload: ShareRequest):
+@app.post("/api/share/whatsapp", response_model=ShareResponse)
+async def share_whatsapp(payload: ShareRequest) -> ShareResponse:
     """
     Generate a WhatsApp-formatted summary string with markdown asterisks and bullet points.
     """
@@ -175,7 +186,14 @@ async def share_whatsapp(payload: ShareRequest):
         if tasks:
             lines.append("\n✅ *Action Items:*")
             for t in tasks:
-                if isinstance(t, dict):
+                if isinstance(t, TaskItem):
+                    name = t.name
+                    d = t.deadline
+                    item = f"• {name}"
+                    if d:
+                        item += f" (by {d})"
+                    lines.append(item)
+                elif isinstance(t, dict):
                     name = t.get("name", "")
                     d = t.get("deadline")
                     item = f"• {name}"
@@ -187,13 +205,14 @@ async def share_whatsapp(payload: ShareRequest):
 
         contact = info.get("contact_info")
         if contact and isinstance(contact, list) and len(contact) > 0:
-            lines.append(f"\n📞 *Contact:* {', '.join(contact)}")
+            lines.append(f"\n📞 *Contact:* {', '.join(str(c) for c in contact)}")
 
         lines.append("\n_Created with NoticePilot_")
-        return {"summary": "\n".join(lines)}
+        return ShareResponse(summary="\n".join(lines))
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.error("WhatsApp summary generation failure: %s", exc, exc_info=True)
         raise HTTPException(status_code=400, detail="Failed to generate WhatsApp summary.")
 
 

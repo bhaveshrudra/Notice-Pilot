@@ -7,6 +7,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Tests](https://img.shields.io/badge/Pytest-Passing-green?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+[![Deployment](https://img.shields.io/badge/Render-Live-brightgreen?style=for-the-badge&logo=render&logoColor=white)](https://noticepilot.onrender.com)
 
 ---
 
@@ -15,6 +16,10 @@
 In academic institutions and organizations, critical operational information is routinely dispersed as chaotic wall-of-text circulars, PDF announcements, WhatsApp forwards, or urgent emails. 
 
 **NoticePilot** bridges the gap between passive announcements and proactive execution. It parses unstructured text, extracts verified dates, times, venues, and registration deadlines, auto-generates prioritizeable task checklists, exports standards-compliant iCalendar files (`.ics`), and prepares formatted WhatsApp summaries — all with full transparency and zero hallucinated dates.
+
+- 🌐 **Live Application:** [https://noticepilot.onrender.com](https://noticepilot.onrender.com)
+- 📚 **Interactive Swagger Docs:** [https://noticepilot.onrender.com/docs](https://noticepilot.onrender.com/docs)
+- 💻 **GitHub Repository:** [https://github.com/bhaveshrudra/Notice-Pilot](https://github.com/bhaveshrudra/Notice-Pilot)
 
 ---
 
@@ -128,8 +133,8 @@ NoticePilot follows a modular, client-server architecture designed for lightning
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-username/NoticePilot.git
-cd NoticePilot
+git clone https://github.com/bhaveshrudra/Notice-Pilot.git
+cd Notice-Pilot
 ```
 
 ### 2. Create and Activate a Virtual Environment
