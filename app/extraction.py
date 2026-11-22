@@ -108,15 +108,21 @@ def extract_dates(text: str) -> Tuple[Optional[str], Optional[EvidenceSnippet], 
     ]
     reg_pattern = re.compile(r'(' + '|'.join(reg_deadline_keywords) + r')', re.IGNORECASE)
 
-    event_date_keywords = [
-        r'date\s+of\s+(?:the\s+)?event',
+    event_specific_keywords = [
+        r'date\s+of\s+(?:the\s+)?(?:lecture|event|workshop|webinar|seminar|session|exam|examination|contest|hackathon|presentation|commencement|conference)',
         r'event\s+date',
+        r'examination\s+period',
+        r'date\s+of\s+commencement',
         r'held\s+on',
         r'scheduled\s+on',
         r'takes?\s+place\s+on',
         r'conducted\s+on',
         r'organized\s+on',
         r'commencing\s+on',
+    ]
+    event_specific_pattern = re.compile(r'(' + '|'.join(event_specific_keywords) + r')', re.IGNORECASE)
+
+    event_date_keywords = event_specific_keywords + [
         r'date\s*:\s*',
         r'dated\s*:\s*',
     ]
@@ -155,11 +161,11 @@ def extract_dates(text: str) -> Tuple[Optional[str], Optional[EvidenceSnippet], 
                         uncertain_fields.append("registration_deadline")
                     break
 
-    # Second pass: Look for event date with explicit keywords
+    # Second pass: Look for event date with SPECIFIC event keywords (e.g. date of lecture, held on)
     for line in lines:
         if reg_deadline_evidence and line == reg_deadline_evidence.snippet:
             continue
-        if event_pattern.search(line):
+        if event_specific_pattern.search(line):
             date_match = raw_date_pattern.search(line)
             if date_match:
                 raw_d = date_match.group(1)
@@ -176,6 +182,33 @@ def extract_dates(text: str) -> Tuple[Optional[str], Optional[EvidenceSnippet], 
                     if is_ambiguous:
                         uncertain_fields.append("date")
                     break
+
+    # Third pass: Look for event date with general keywords (e.g. Date: 15th Dec)
+    if not event_date:
+        for idx, line in enumerate(lines):
+            if reg_deadline_evidence and line == reg_deadline_evidence.snippet:
+                continue
+            if event_pattern.search(line):
+                date_match = raw_date_pattern.search(line)
+                if date_match:
+                    raw_d = date_match.group(1)
+                    iso_d = _parse_to_iso_date(raw_d)
+                    if iso_d:
+                        # If this is on header lines (idx <= 2) and there is another date below, check if there's a better one
+                        has_later_date = any(raw_date_pattern.search(l) for l in lines[idx+1:] if not (reg_deadline_evidence and l == reg_deadline_evidence.snippet))
+                        if idx <= 2 and has_later_date:
+                            continue
+                        event_date = iso_d
+                        is_ambiguous = _check_numeric_date_ambiguity(raw_d)
+                        conf = 0.65 if is_ambiguous else 0.95
+                        event_date_evidence = EvidenceSnippet(
+                            field="date",
+                            snippet=line,
+                            confidence=conf
+                        )
+                        if is_ambiguous:
+                            uncertain_fields.append("date")
+                        break
 
     # Third pass: Any remaining date in the text
     if not event_date:
@@ -321,24 +354,31 @@ def extract_requirements(text: str) -> Tuple[List[str], List[EvidenceSnippet]]:
     in_req_section = False
     for line in lines:
         # Check section header
-        if re.search(r'^(?:requirements?|prerequisites?|instructions?|rules?)\s*[:\-]?$', line, re.IGNORECASE):
+        if re.search(r'^(?:requirements?|prerequisites?|instructions?|rules?|students\s+are\s+required\s+to)\s*[:\-]?$', line, re.IGNORECASE) or re.search(r'required\s+to\s*:', line, re.IGNORECASE):
             in_req_section = True
             continue
 
         if in_req_section:
-            if re.search(r'^(?:contact|venue|date|time|schedule|about)\s*[:\-]', line, re.IGNORECASE):
+            if re.search(r'^(?:contact|venue|date|time|schedule|about|email|phone)\s*[:\-]', line, re.IGNORECASE):
                 in_req_section = False
             elif line.startswith(('-', '*', '•')) or re.match(r'^\d+[\.\)]', line):
-                clean_item = re.sub(r'^[-*•\d\.\)]\s*', '', line).strip()
-                if clean_item and len(clean_item) > 5:
+                clean_item = re.sub(r'^(?:[-*•]|\d+[\.\)])\s*', '', line).strip()
+                clean_item = re.sub(r'^[.\-\s]+', '', clean_item).strip()
+                if clean_item and len(clean_item) > 3:
                     requirements.append(clean_item)
                     evidence.append(EvidenceSnippet(field="requirements", snippet=line, confidence=0.90))
                     continue
+            elif line.endswith(':'):
+                in_req_section = False
 
-        if pattern.search(line):
-            clean_item = re.sub(r'^[-*•\d\.\)]\s*', '', line).strip()
+        if not in_req_section and pattern.search(line):
+            if line.strip().endswith(':'):
+                in_req_section = True
+                continue
+            clean_item = re.sub(r'^(?:[-*•]|\d+[\.\)])\s*', '', line).strip()
+            clean_item = re.sub(r'^[.\-\s]+', '', clean_item).strip()
             # Exclude lines that are purely contacts or headings
-            if len(clean_item) > 5 and not re.search(r'^(?:contact|venue|date|time)\s*[:\-]', clean_item, re.IGNORECASE):
+            if len(clean_item) > 5 and not re.search(r'^(?:contact|venue|date|time|email|phone)\s*[:\-]', clean_item, re.IGNORECASE):
                 if clean_item not in requirements:
                     requirements.append(clean_item)
                     evidence.append(EvidenceSnippet(field="requirements", snippet=line, confidence=0.85))
@@ -400,8 +440,9 @@ def extract_action_items(text: str) -> Tuple[List[str], List[EvidenceSnippet]]:
 
     for line in lines:
         # Check if line starts with bullet or number
-        m_bullet = re.match(r'^[-*•\d\.\)]\s*(.+)$', line)
+        m_bullet = re.match(r'^(?:[-*•]|\d+[\.\)])\s*(.+)$', line)
         candidate = m_bullet.group(1).strip() if m_bullet else line
+        candidate = re.sub(r'^[.\-\s]+', '', candidate).strip()
 
         # Exclude headers, contact, or location lines
         if re.search(r'^(?:venue|location|date|time|contact|subject|ref)\s*[:\-]', candidate, re.IGNORECASE):
@@ -436,6 +477,10 @@ def extract_from_notice(text: str) -> ExtractedInfo:
     """
     if not text or not text.strip():
         return ExtractedInfo()
+
+    # Normalize literal \n or \r if payload string was passed with escaped backslashes
+    if '\\n' in text and '\n' not in text:
+        text = text.replace('\\r\\n', '\n').replace('\\n', '\n').replace('\\r', '\n')
 
     evidence_list: List[EvidenceSnippet] = []
     uncertain_fields_set = set()

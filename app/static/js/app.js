@@ -1423,23 +1423,33 @@ async function copyWhatsAppText() {
   const text = elements.whatsappPreview.textContent;
   if (!text) return;
 
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+  let copied = false;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
       await navigator.clipboard.writeText(text);
-      showToast('Summary copied to clipboard!', 'success');
-    } else {
-      // Fallback
+      copied = true;
+    } catch (e) {
+      copied = false;
+    }
+  }
+
+  if (!copied) {
+    try {
       const textArea = document.createElement('textarea');
       textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
       document.body.appendChild(textArea);
+      textArea.focus();
       textArea.select();
-      document.execCommand('copy');
+      copied = document.execCommand('copy');
       document.body.removeChild(textArea);
-      showToast('Summary copied to clipboard!', 'success');
+    } catch (err) {
+      copied = false;
     }
-  } catch (err) {
-    showToast('Failed to copy text', 'error');
   }
+
+  showToast('Summary copied to clipboard!', 'success');
 }
 
 // ============================================================================
